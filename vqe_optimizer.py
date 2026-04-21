@@ -28,10 +28,8 @@ class VQEOptimizer:
             qml.RY(params[0, i, 0], wires=i)
 
         for layer in range(self.n_layers):
-            # Entangling layer: CNOTs in a ring
             for i in range(self.n_qubits):
                 qml.CNOT(wires=[i, (i+1) % self.n_qubits])
-            # Rotation layer
             for i in range(self.n_qubits):
                 qml.RY(params[layer, i, 1], wires=i)
                 qml.RZ(params[layer, i, 2], wires=i)
@@ -39,7 +37,8 @@ class VQEOptimizer:
         return qml.sample(wires=range(self.n_qubits))
 
     def compute_expectation(self, params, linear_coeffs, quadratic_coeffs, penalty, K):
-        samples = self.vqe_circuit(params, linear_coeffs, quadratic_coeffs, penalty, K)
+        qnode = qml.QNode(self.vqe_circuit, self.dev)
+        samples = qnode(params, linear_coeffs, quadratic_coeffs, penalty, K)
         cost = 0.0
         for sample in samples:
             x = sample
@@ -64,7 +63,8 @@ class VQEOptimizer:
         result = minimize(objective, init_params, method='COBYLA', options={'maxiter': 100})
         optimal_params = result.x
 
-        samples = self.vqe_circuit(optimal_params, linear_coeffs, quadratic_coeffs, penalty, K)
+        qnode = qml.QNode(self.vqe_circuit, self.dev)
+        samples = qnode(optimal_params, linear_coeffs, quadratic_coeffs, penalty, K)
         best_sample = None
         best_cost = float('inf')
         for sample in samples:
