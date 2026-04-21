@@ -37,6 +37,35 @@ def load_latest_results():
         st.error(f"Failed to load data: {e}")
         return None
 
+def display_optimizer_tab(optimizer_data: dict, optimizer_name: str):
+    universes = optimizer_data.get('universes', {})
+    subtabs = st.tabs(["📊 Combined", "📈 Equity Sectors", "💰 FI/Commodities"])
+    universe_keys = ["COMBINED", "EQUITY_SECTORS", "FI_COMMODITIES"]
+
+    for subtab, key in zip(subtabs, universe_keys):
+        with subtab:
+            universe_data = universes.get(key, {})
+            selected = universe_data.get('selected_tickers', [])
+            port_return = universe_data.get('portfolio_return', 0.0)
+            port_risk = universe_data.get('portfolio_risk', 0.0)
+
+            if selected:
+                st.markdown(f"""
+                <div class="hero-card">
+                    <h2>⚛️ {optimizer_name} Selected Portfolio</h2>
+                    <div class="ticker-list">Selected ETFs: {', '.join(selected)}</div>
+                    <p>Expected Return: {port_return*100:.2f}%</p>
+                    <p>Expected Risk: {port_risk*100:.2f}%</p>
+                    <p>Sharpe Ratio: {port_return/port_risk:.2f}</p>
+                </div>
+                """, unsafe_allow_html=True)
+
+                st.markdown("### Selected ETFs")
+                df = pd.DataFrame({'Ticker': selected})
+                st.dataframe(df, use_container_width=True, hide_index=True)
+            else:
+                st.info("No portfolio selected for this universe.")
+
 # --- Sidebar ---
 st.sidebar.markdown("## ⚙️ Configuration")
 calendar = USMarketCalendar()
@@ -46,36 +75,23 @@ if data:
     st.sidebar.markdown(f"**Run Date:** {data.get('run_date', 'Unknown')}")
 
 st.markdown('<div class="main-header">⚛️ P2Quant Q-Quant</div>', unsafe_allow_html=True)
-st.markdown('<div>Quantum‑Classical Hybrid – QAOA for ETF Portfolio Selection</div>', unsafe_allow_html=True)
+st.markdown('<div>Quantum‑Classical Hybrid – QAOA & VQE for ETF Portfolio Selection</div>', unsafe_allow_html=True)
 
 if data is None:
     st.warning("No data available.")
     st.stop()
 
-daily = data['daily_trading']
-tabs = st.tabs(["📊 Combined", "📈 Equity Sectors", "💰 FI/Commodities"])
-universe_keys = ["COMBINED", "EQUITY_SECTORS", "FI_COMMODITIES"]
+# --- Main Tabs: QAOA and VQE ---
+main_tab1, main_tab2 = st.tabs(["🌀 QAOA", "⚡ VQE"])
 
-for tab, key in zip(tabs, universe_keys):
-    with tab:
-        universe_data = daily['universes'].get(key, {})
-        selected = universe_data.get('selected_tickers', [])
-        port_return = universe_data.get('portfolio_return', 0.0)
-        port_risk = universe_data.get('portfolio_risk', 0.0)
+with main_tab1:
+    if 'qaoa' in data:
+        display_optimizer_tab(data['qaoa'], "QAOA")
+    else:
+        st.warning("QAOA data not available.")
 
-        if selected:
-            st.markdown(f"""
-            <div class="hero-card">
-                <h2>⚛️ QAOA-Selected Portfolio</h2>
-                <div class="ticker-list">Selected ETFs: {', '.join(selected)}</div>
-                <p>Expected Return: {port_return*100:.2f}%</p>
-                <p>Expected Risk: {port_risk*100:.2f}%</p>
-                <p>Sharpe Ratio: {port_return/port_risk:.2f}</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-            st.markdown("### Selected ETFs")
-            df = pd.DataFrame({'Ticker': selected})
-            st.dataframe(df, use_container_width=True, hide_index=True)
-        else:
-            st.info("No portfolio selected for this universe.")
+with main_tab2:
+    if 'vqe' in data:
+        display_optimizer_tab(data['vqe'], "VQE")
+    else:
+        st.warning("VQE data not available.")
