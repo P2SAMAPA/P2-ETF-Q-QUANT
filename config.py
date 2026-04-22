@@ -27,8 +27,8 @@ UNIVERSES = {
 
 # --- Q-Quant Engine Parameters ---
 LOOKBACK_WINDOW = 252                 # Days of historical data for training
-NUM_ASSETS_TO_SELECT = 5              # Number of ETFs to select (K)
-QAOA_LAYERS = 2                       # Number of QAOA layers (p)
+NUM_ASSETS_TO_SELECT = 1              # Number of ETFs to select (K = 1)
+QAOA_LAYERS = 2                       # Number of QAOA/VQE layers (p)
 NUM_SHOTS = 1024                      # Number of simulation shots
 MIN_OBSERVATIONS = 252                # Minimum data required
 
