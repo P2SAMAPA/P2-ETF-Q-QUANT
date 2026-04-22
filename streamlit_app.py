@@ -1,7 +1,6 @@
 """
 Streamlit Dashboard for Q-Quant Engine.
-Daily Trading and Global Training tabs, each with QAOA and VQE sub‑tabs.
-Hero card shows highest expected return; quantum pick shown in expander.
+Quantum optimizers directly select highest expected return ETFs.
 """
 
 import streamlit as st
@@ -41,7 +40,6 @@ def load_latest_results():
         return None
 
 def display_mode_tabs(mode_data: dict, mode_name: str):
-    """Display QAOA and VQE as sub‑tabs under a given mode (Daily/Global)."""
     qaoa_data = mode_data.get('QAOA', {})
     vqe_data = mode_data.get('VQE', {})
     subtab1, subtab2 = st.tabs(["🌀 QAOA", "⚡ VQE"])
@@ -52,33 +50,26 @@ def display_mode_tabs(mode_data: dict, mode_name: str):
         display_optimizer_results(vqe_data, f"{mode_name} VQE")
 
 def display_optimizer_results(optimizer_data: dict, title: str):
-    """Display results for a specific optimizer (QAOA or VQE)."""
     universe_subtabs = st.tabs(["📊 Combined", "📈 Equity Sectors", "💰 FI/Commodities"])
     universe_keys = ["COMBINED", "EQUITY_SECTORS", "FI_COMMODITIES"]
 
     for subtab, key in zip(universe_subtabs, universe_keys):
         with subtab:
-            pick = optimizer_data.get(key)
-            if pick:
-                hero_ticker = pick['hero_ticker']
-                hero_return = pick['hero_return']
-                quantum_ticker = pick.get('quantum_ticker')
-                quantum_return = pick.get('quantum_return')
+            data = optimizer_data.get(key)
+            if data:
+                top_pick = data.get('top_pick')
+                top3 = data.get('top3', [])
+                if top_pick:
+                    ticker = top_pick['ticker']
+                    exp_ret = top_pick['expected_return']
+                    st.markdown(f"""
+                    <div class="hero-card">
+                        <div style="font-size: 1.2rem; opacity: 0.8;">⚛️ {title} TOP PICK</div>
+                        <div class="hero-ticker">{ticker}</div>
+                        <div class="hero-return">Expected Return: {exp_ret*100:.2f}%</div>
+                    </div>
+                    """, unsafe_allow_html=True)
 
-                st.markdown(f"""
-                <div class="hero-card">
-                    <div style="font-size: 1.2rem; opacity: 0.8;">⚛️ {title} TOP PICK (Highest Expected Return)</div>
-                    <div class="hero-ticker">{hero_ticker}</div>
-                    <div class="hero-return">Expected Return: {hero_return*100:.2f}%</div>
-                </div>
-                """, unsafe_allow_html=True)
-
-                if quantum_ticker and quantum_ticker != hero_ticker:
-                    with st.expander(f"🔬 Quantum Selection ({title})"):
-                        st.markdown(f"**Quantum Pick:** {quantum_ticker} ({quantum_return*100:.2f}%)")
-                        st.caption("The quantum optimizer selected a different asset due to the QUBO penalty landscape.")
-
-                top3 = pick.get('top3', [])
                 if top3:
                     st.markdown("### Top 3 ETFs by Expected Return")
                     df = pd.DataFrame(top3)
