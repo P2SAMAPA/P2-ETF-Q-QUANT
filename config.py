@@ -26,7 +26,8 @@ UNIVERSES = {
 }
 
 # --- Q-Quant Engine Parameters ---
-LOOKBACK_WINDOW = 252                 # Days of historical data for training
+LOOKBACK_WINDOW = 252                 # Days for daily trading
+GLOBAL_TRAINING_START = "2008-01-01"  # Start date for global training
 NUM_ASSETS_TO_SELECT = 1              # Number of ETFs to select (K = 1)
 QAOA_LAYERS = 2                       # Number of QAOA/VQE layers (p)
 NUM_SHOTS = 1024                      # Number of simulation shots
