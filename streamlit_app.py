@@ -1,5 +1,6 @@
 """
 Streamlit Dashboard for Q-Quant Engine.
+Displays single ETF pick from QAOA and VQE.
 """
 
 import streamlit as st
@@ -14,8 +15,9 @@ st.set_page_config(page_title="P2Quant Q-Quant", page_icon="⚛️", layout="wid
 st.markdown("""
 <style>
     .main-header { font-size: 2.5rem; font-weight: 600; color: #1f77b4; }
-    .hero-card { background: linear-gradient(135deg, #1f77b4 0%, #2C5282 100%); border-radius: 16px; padding: 2rem; color: white; }
-    .ticker-list { font-size: 1.2rem; }
+    .hero-card { background: linear-gradient(135deg, #1f77b4 0%, #2C5282 100%); border-radius: 16px; padding: 2rem; color: white; text-align: center; }
+    .hero-ticker { font-size: 4rem; font-weight: 800; }
+    .hero-return { font-size: 2rem; font-weight: 600; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -38,33 +40,25 @@ def load_latest_results():
         return None
 
 def display_optimizer_tab(optimizer_data: dict, optimizer_name: str):
-    universes = optimizer_data.get('universes', {})
+    top_picks = optimizer_data.get('top_picks', {})
     subtabs = st.tabs(["📊 Combined", "📈 Equity Sectors", "💰 FI/Commodities"])
     universe_keys = ["COMBINED", "EQUITY_SECTORS", "FI_COMMODITIES"]
 
     for subtab, key in zip(subtabs, universe_keys):
         with subtab:
-            universe_data = universes.get(key, {})
-            selected = universe_data.get('selected_tickers', [])
-            port_return = universe_data.get('portfolio_return', 0.0)
-            port_risk = universe_data.get('portfolio_risk', 0.0)
-
-            if selected:
+            pick = top_picks.get(key)
+            if pick:
+                ticker = pick['ticker']
+                exp_ret = pick['expected_return']
                 st.markdown(f"""
                 <div class="hero-card">
-                    <h2>⚛️ {optimizer_name} Selected Portfolio</h2>
-                    <div class="ticker-list">Selected ETFs: {', '.join(selected)}</div>
-                    <p>Expected Return: {port_return*100:.2f}%</p>
-                    <p>Expected Risk: {port_risk*100:.2f}%</p>
-                    <p>Sharpe Ratio: {port_return/port_risk:.2f}</p>
+                    <div style="font-size: 1.2rem; opacity: 0.8;">⚛️ {optimizer_name} TOP PICK</div>
+                    <div class="hero-ticker">{ticker}</div>
+                    <div class="hero-return">Expected Return: {exp_ret*100:.2f}%</div>
                 </div>
                 """, unsafe_allow_html=True)
-
-                st.markdown("### Selected ETFs")
-                df = pd.DataFrame({'Ticker': selected})
-                st.dataframe(df, use_container_width=True, hide_index=True)
             else:
-                st.info("No portfolio selected for this universe.")
+                st.info(f"No selection for {key}.")
 
 # --- Sidebar ---
 st.sidebar.markdown("## ⚙️ Configuration")
@@ -75,13 +69,12 @@ if data:
     st.sidebar.markdown(f"**Run Date:** {data.get('run_date', 'Unknown')}")
 
 st.markdown('<div class="main-header">⚛️ P2Quant Q-Quant</div>', unsafe_allow_html=True)
-st.markdown('<div>Quantum‑Classical Hybrid – QAOA & VQE for ETF Portfolio Selection</div>', unsafe_allow_html=True)
+st.markdown('<div>Quantum‑Classical Hybrid – QAOA & VQE for Single ETF Selection</div>', unsafe_allow_html=True)
 
 if data is None:
     st.warning("No data available.")
     st.stop()
 
-# --- Main Tabs: QAOA and VQE ---
 main_tab1, main_tab2 = st.tabs(["🌀 QAOA", "⚡ VQE"])
 
 with main_tab1:
