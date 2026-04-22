@@ -1,7 +1,6 @@
 """
 Main training script for Q-Quant engine.
-Selects exactly one ETF per universe using QAOA and VQE in parallel.
-Also returns the top 3 ETFs by expected return.
+Runs daily (252d) and global (2008‑present) training for QAOA and VQE.
 """
 
 import json
@@ -16,16 +15,18 @@ from qaoa_optimizer import QAOAOptimizer
 from vqe_optimizer import VQEOptimizer
 import push_results
 
-def process_universe_optimizer(optimizer_type, universe_name, tickers, returns_data):
+def process_universe(optimizer_type, universe_name, tickers, returns, mode="daily"):
     """Process a single universe with either QAOA or VQE."""
-    print(f"  [{optimizer_type}] Processing {universe_name}...")
-    returns = returns_data[universe_name]
+    print(f"  [{optimizer_type}][{mode}] Processing {universe_name}...")
     if len(returns) < config.MIN_OBSERVATIONS:
-        return optimizer_type, universe_name, None, None, []
+        return optimizer_type, mode, universe_name, None, None, []
 
-    recent_returns = returns.iloc[-config.LOOKBACK_WINDOW:]
-    expected_returns = recent_returns.mean().values * 252  # Annualized
+    if mode == "daily":
+        recent_returns = returns.iloc[-config.LOOKBACK_WINDOW:]
+    else:
+        recent_returns = returns  # global: use all data
 
+    expected_returns = recent_returns.mean().values * 252
     scaler = StandardScaler()
     expected_returns_scaled = scaler.fit_transform(expected_returns.reshape(-1, 1)).flatten()
 
@@ -41,55 +42,67 @@ def process_universe_optimizer(optimizer_type, universe_name, tickers, returns_d
     selected_ticker = tickers[selected_index]
     selected_return = expected_returns[selected_index]
 
-    # Get top 3 ETFs by expected return (simplest ranking)
     top3 = []
     sorted_indices = np.argsort(expected_returns)[::-1][:3]
     for idx in sorted_indices:
         top3.append({"ticker": tickers[idx], "expected_return": expected_returns[idx]})
 
-    print(f"  [{optimizer_type}] {universe_name} selected: {selected_ticker} ({selected_return*100:.2f}%)")
-    return optimizer_type, universe_name, selected_ticker, selected_return, top3
+    print(f"  [{optimizer_type}][{mode}] {universe_name} selected: {selected_ticker} ({selected_return*100:.2f}%)")
+    return optimizer_type, mode, universe_name, selected_ticker, selected_return, top3
 
 
 def run_q_quant():
     print(f"=== P2-ETF-Q-QUANT Run: {config.TODAY} ===")
     df_master = data_manager.load_master_data()
+    df_master = df_master[df_master['Date'] >= config.GLOBAL_TRAINING_START]
 
-    returns_data = {}
+    # Pre-compute returns for all universes (full history)
+    returns_global = {}
     tickers_map = {}
     for universe_name, tickers in config.UNIVERSES.items():
         returns = data_manager.prepare_returns_matrix(df_master, tickers)
         if len(returns) >= config.MIN_OBSERVATIONS:
-            returns_data[universe_name] = returns
+            returns_global[universe_name] = returns
             tickers_map[universe_name] = tickers
 
     tasks = []
     with ProcessPoolExecutor(max_workers=2) as executor:
+        # Submit daily and global tasks for both optimizers
         for opt in ["QAOA", "VQE"]:
-            for uni in returns_data.keys():
+            for uni in returns_global.keys():
+                # Daily mode (last 252 days)
+                daily_returns = returns_global[uni].iloc[-config.LOOKBACK_WINDOW:]
                 tasks.append(executor.submit(
-                    process_universe_optimizer, opt, uni, tickers_map[uni], returns_data
+                    process_universe, opt, uni, tickers_map[uni], daily_returns, "daily"
+                ))
+                # Global mode (full history)
+                tasks.append(executor.submit(
+                    process_universe, opt, uni, tickers_map[uni], returns_global[uni], "global"
                 ))
 
-        qaoa_picks = {}
-        qaoa_top3 = {}
-        vqe_picks = {}
-        vqe_top3 = {}
+        results = {
+            "daily": {"QAOA": {}, "VQE": {}},
+            "global": {"QAOA": {}, "VQE": {}}
+        }
+
         for future in as_completed(tasks):
-            opt_type, uni, ticker, exp_ret, top3 = future.result()
+            opt_type, mode, uni, ticker, exp_ret, top3 = future.result()
             if ticker:
-                if opt_type == "QAOA":
-                    qaoa_picks[uni] = {"ticker": ticker, "expected_return": exp_ret}
-                    qaoa_top3[uni] = top3
-                else:
-                    vqe_picks[uni] = {"ticker": ticker, "expected_return": exp_ret}
-                    vqe_top3[uni] = top3
+                results[mode][opt_type][uni] = {
+                    "ticker": ticker,
+                    "expected_return": exp_ret,
+                    "top3": top3
+                }
 
     output_payload = {
         "run_date": config.TODAY,
-        "config": {"lookback_window": config.LOOKBACK_WINDOW, "num_assets_to_select": 1},
-        "qaoa": {"top_picks": qaoa_picks, "top3": qaoa_top3},
-        "vqe": {"top_picks": vqe_picks, "top3": vqe_top3}
+        "config": {
+            "lookback_window": config.LOOKBACK_WINDOW,
+            "global_training_start": config.GLOBAL_TRAINING_START,
+            "num_assets_to_select": 1
+        },
+        "daily": results["daily"],
+        "global": results["global"]
     }
 
     push_results.push_daily_result(output_payload)
