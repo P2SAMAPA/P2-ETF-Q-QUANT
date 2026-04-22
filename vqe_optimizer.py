@@ -1,5 +1,5 @@
 """
-Variational Quantum Eigensolver (VQE) for portfolio optimization.
+Variational Quantum Eigensolver (VQE) for single ETF selection.
 """
 
 import numpy as np
@@ -13,14 +13,10 @@ class VQEOptimizer:
         self.num_shots = num_shots
         self.dev = qml.device("default.qubit", wires=n_qubits, shots=num_shots)
 
-    def build_cost_hamiltonian(self, expected_returns, covariance, risk_factor=0.5, penalty=10.0):
-        n = len(expected_returns)
-        linear_coeffs = -expected_returns
-        quadratic_coeffs = risk_factor * covariance
-        K = self.n_qubits
-        return linear_coeffs, quadratic_coeffs, penalty, K
+    def build_cost_hamiltonian(self, expected_returns):
+        return -expected_returns
 
-    def vqe_circuit(self, params, linear_coeffs, quadratic_coeffs, penalty, K):
+    def vqe_circuit(self, params, linear_coeffs, penalty, K):
         """Hardware-efficient ansatz."""
         params = params.reshape(self.n_layers, self.n_qubits, 3)
 
@@ -36,40 +32,36 @@ class VQEOptimizer:
 
         return qml.sample(wires=range(self.n_qubits))
 
-    def compute_expectation(self, params, linear_coeffs, quadratic_coeffs, penalty, K):
+    def compute_expectation(self, params, linear_coeffs, penalty, K):
         qnode = qml.QNode(self.vqe_circuit, self.dev)
-        samples = qnode(params, linear_coeffs, quadratic_coeffs, penalty, K)
+        samples = qnode(params, linear_coeffs, penalty, K)
         cost = 0.0
         for sample in samples:
-            x = sample
-            c = np.dot(linear_coeffs, x)
-            c += np.dot(x, np.dot(quadratic_coeffs, x))
-            c += penalty * (np.sum(x) - K) ** 2
+            x = sample.astype(float)
+            c = np.dot(linear_coeffs, x) + penalty * (np.sum(x) - K) ** 2
             cost += c
         return cost / len(samples)
 
-    def optimize_portfolio(self, expected_returns, covariance, risk_factor=0.5):
+    def optimize_portfolio(self, expected_returns, covariance=None, risk_factor=0.5, penalty=100.0, K=1):
         n = len(expected_returns)
         self.n_qubits = n
-        linear_coeffs, quadratic_coeffs, penalty, K = self.build_cost_hamiltonian(
-            expected_returns, covariance, risk_factor
-        )
+        linear_coeffs = self.build_cost_hamiltonian(expected_returns)
 
         init_params = np.random.uniform(0, np.pi, self.n_layers * self.n_qubits * 3)
 
         def objective(params):
-            return self.compute_expectation(params, linear_coeffs, quadratic_coeffs, penalty, K)
+            return self.compute_expectation(params, linear_coeffs, penalty, K)
 
         result = minimize(objective, init_params, method='COBYLA', options={'maxiter': 100})
         optimal_params = result.x
 
         qnode = qml.QNode(self.vqe_circuit, self.dev)
-        samples = qnode(optimal_params, linear_coeffs, quadratic_coeffs, penalty, K)
+        samples = qnode(optimal_params, linear_coeffs, penalty, K)
         best_sample = None
         best_cost = float('inf')
         for sample in samples:
-            x = sample
-            c = np.dot(linear_coeffs, x) + np.dot(x, np.dot(quadratic_coeffs, x)) + penalty * (np.sum(x) - K) ** 2
+            x = sample.astype(float)
+            c = np.dot(linear_coeffs, x) + penalty * (np.sum(x) - K) ** 2
             if c < best_cost:
                 best_cost = c
                 best_sample = x
