@@ -1,6 +1,7 @@
 """
 Streamlit Dashboard for Q-Quant Engine.
 Daily Trading and Global Training tabs, each with QAOA and VQE sub‑tabs.
+Hero card shows highest expected return; quantum pick shown in expander.
 """
 
 import streamlit as st
@@ -59,15 +60,23 @@ def display_optimizer_results(optimizer_data: dict, title: str):
         with subtab:
             pick = optimizer_data.get(key)
             if pick:
-                ticker = pick['ticker']
-                exp_ret = pick['expected_return']
+                hero_ticker = pick['hero_ticker']
+                hero_return = pick['hero_return']
+                quantum_ticker = pick.get('quantum_ticker')
+                quantum_return = pick.get('quantum_return')
+
                 st.markdown(f"""
                 <div class="hero-card">
-                    <div style="font-size: 1.2rem; opacity: 0.8;">⚛️ {title} TOP PICK</div>
-                    <div class="hero-ticker">{ticker}</div>
-                    <div class="hero-return">Expected Return: {exp_ret*100:.2f}%</div>
+                    <div style="font-size: 1.2rem; opacity: 0.8;">⚛️ {title} TOP PICK (Highest Expected Return)</div>
+                    <div class="hero-ticker">{hero_ticker}</div>
+                    <div class="hero-return">Expected Return: {hero_return*100:.2f}%</div>
                 </div>
                 """, unsafe_allow_html=True)
+
+                if quantum_ticker and quantum_ticker != hero_ticker:
+                    with st.expander(f"🔬 Quantum Selection ({title})"):
+                        st.markdown(f"**Quantum Pick:** {quantum_ticker} ({quantum_return*100:.2f}%)")
+                        st.caption("The quantum optimizer selected a different asset due to the QUBO penalty landscape.")
 
                 top3 = pick.get('top3', [])
                 if top3:
