@@ -1,6 +1,6 @@
 """
 Streamlit Dashboard for Q-Quant Engine.
-Displays single ETF pick from QAOA and VQE, plus top 3 by expected return.
+Daily Trading and Global Training tabs, each with QAOA and VQE sub‑tabs.
 """
 
 import streamlit as st
@@ -39,28 +39,37 @@ def load_latest_results():
         st.error(f"Failed to load data: {e}")
         return None
 
-def display_optimizer_tab(optimizer_data: dict, optimizer_name: str):
-    top_picks = optimizer_data.get('top_picks', {})
-    top3_dict = optimizer_data.get('top3', {})
-    subtabs = st.tabs(["📊 Combined", "📈 Equity Sectors", "💰 FI/Commodities"])
+def display_mode_tabs(mode_data: dict, mode_name: str):
+    """Display QAOA and VQE as sub‑tabs under a given mode (Daily/Global)."""
+    qaoa_data = mode_data.get('QAOA', {})
+    vqe_data = mode_data.get('VQE', {})
+    subtab1, subtab2 = st.tabs(["🌀 QAOA", "⚡ VQE"])
+
+    with subtab1:
+        display_optimizer_results(qaoa_data, f"{mode_name} QAOA")
+    with subtab2:
+        display_optimizer_results(vqe_data, f"{mode_name} VQE")
+
+def display_optimizer_results(optimizer_data: dict, title: str):
+    """Display results for a specific optimizer (QAOA or VQE)."""
+    universe_subtabs = st.tabs(["📊 Combined", "📈 Equity Sectors", "💰 FI/Commodities"])
     universe_keys = ["COMBINED", "EQUITY_SECTORS", "FI_COMMODITIES"]
 
-    for subtab, key in zip(subtabs, universe_keys):
+    for subtab, key in zip(universe_subtabs, universe_keys):
         with subtab:
-            pick = top_picks.get(key)
+            pick = optimizer_data.get(key)
             if pick:
                 ticker = pick['ticker']
                 exp_ret = pick['expected_return']
                 st.markdown(f"""
                 <div class="hero-card">
-                    <div style="font-size: 1.2rem; opacity: 0.8;">⚛️ {optimizer_name} TOP PICK</div>
+                    <div style="font-size: 1.2rem; opacity: 0.8;">⚛️ {title} TOP PICK</div>
                     <div class="hero-ticker">{ticker}</div>
                     <div class="hero-return">Expected Return: {exp_ret*100:.2f}%</div>
                 </div>
                 """, unsafe_allow_html=True)
 
-                # Display top 3 table
-                top3 = top3_dict.get(key, [])
+                top3 = pick.get('top3', [])
                 if top3:
                     st.markdown("### Top 3 ETFs by Expected Return")
                     df = pd.DataFrame(top3)
@@ -85,16 +94,16 @@ if data is None:
     st.warning("No data available.")
     st.stop()
 
-main_tab1, main_tab2 = st.tabs(["🌀 QAOA", "⚡ VQE"])
+main_tab1, main_tab2 = st.tabs(["📋 Daily Trading", "🌍 Global Training"])
 
 with main_tab1:
-    if 'qaoa' in data:
-        display_optimizer_tab(data['qaoa'], "QAOA")
+    if 'daily' in data:
+        display_mode_tabs(data['daily'], "Daily")
     else:
-        st.warning("QAOA data not available.")
+        st.warning("Daily data not available.")
 
 with main_tab2:
-    if 'vqe' in data:
-        display_optimizer_tab(data['vqe'], "VQE")
+    if 'global' in data:
+        display_mode_tabs(data['global'], "Global")
     else:
-        st.warning("VQE data not available.")
+        st.warning("Global data not available.")
