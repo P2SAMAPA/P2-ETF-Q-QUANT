@@ -1,5 +1,5 @@
 """
-Quantum Approximate Optimization Algorithm (QAOA) for single ETF selection.
+Quantum Approximate Optimization Algorithm (QAOA) for selecting highest expected return ETF.
 """
 
 import numpy as np
@@ -14,64 +14,63 @@ class QAOAOptimizer:
         self.num_shots = num_shots
         self.dev = qml.device("default.qubit", wires=n_qubits, shots=num_shots)
 
-    def build_cost_hamiltonian(self, expected_returns, risk_penalty=0.0):
-        """Build linear coefficients: negative expected returns."""
+    def build_cost_hamiltonian(self, expected_returns):
+        """Linear coefficients: negative expected returns (minimize cost = maximize return)."""
         return -expected_returns
 
-    def qaoa_circuit(self, params, linear_coeffs, penalty, K):
-        """QAOA circuit for selecting exactly one asset."""
+    def qaoa_circuit(self, params, linear_coeffs):
+        """QAOA circuit with only cost Hamiltonian (no mixer for simplicity)."""
         gamma = params[:self.n_layers]
-        beta = params[self.n_layers:]
 
         for i in range(self.n_qubits):
             qml.Hadamard(wires=i)
 
         for layer in range(self.n_layers):
-            # Cost Hamiltonian: RZ rotations based on linear coefficients
             for i in range(self.n_qubits):
                 qml.RZ(2 * gamma[layer] * linear_coeffs[i], wires=i)
-            # Mixer Hamiltonian: RX rotations
-            for i in range(self.n_qubits):
-                qml.RX(2 * beta[layer], wires=i)
 
         return qml.sample(wires=range(self.n_qubits))
 
-    def compute_expectation(self, params, linear_coeffs, penalty, K):
+    def compute_expectation(self, params, linear_coeffs):
         """Compute the expectation value of the cost Hamiltonian."""
         qnode = qml.QNode(self.qaoa_circuit, self.dev)
-        samples = qnode(params, linear_coeffs, penalty, K)
+        samples = qnode(params, linear_coeffs)
         cost = 0.0
         for sample in samples:
             x = sample.astype(float)
             c = np.dot(linear_coeffs, x)
-            # Penalty for not having exactly one asset selected
-            c += penalty * (np.sum(x) - K) ** 2
             cost += c
         return cost / len(samples)
 
-    def optimize_portfolio(self, expected_returns, covariance=None, risk_factor=0.5, penalty=100.0, K=1):
-        """Run QAOA to select the single best ETF."""
+    def optimize_portfolio(self, expected_returns, K=1):
+        """Run QAOA to find the asset with highest expected return."""
         n = len(expected_returns)
         self.n_qubits = n
         linear_coeffs = self.build_cost_hamiltonian(expected_returns)
 
-        init_params = np.random.uniform(0, np.pi, 2 * self.n_layers)
+        init_params = np.random.uniform(0, np.pi, self.n_layers)
 
         def objective(params):
-            return self.compute_expectation(params, linear_coeffs, penalty, K)
+            return self.compute_expectation(params, linear_coeffs)
 
         result = minimize(objective, init_params, method='COBYLA', options={'maxiter': 100})
         optimal_params = result.x
 
         qnode = qml.QNode(self.qaoa_circuit, self.dev)
-        samples = qnode(optimal_params, linear_coeffs, penalty, K)
-        best_sample = None
-        best_cost = float('inf')
-        for sample in samples:
-            x = sample.astype(float)
-            c = np.dot(linear_coeffs, x) + penalty * (np.sum(x) - K) ** 2
-            if c < best_cost:
-                best_cost = c
-                best_sample = x
+        samples = qnode(optimal_params, linear_coeffs)
 
-        return best_sample, best_cost
+        # Count frequency of each bitstring
+        unique, counts = np.unique(samples, axis=0, return_counts=True)
+        sorted_idx = np.argsort(counts)[::-1]
+        top_bitstrings = unique[sorted_idx]
+
+        # Convert bitstrings to ticker indices (the one with '1' selected)
+        selected_indices = []
+        for bs in top_bitstrings:
+            idx = np.where(bs == 1)[0]
+            if len(idx) == 1:
+                selected_indices.append(idx[0])
+            if len(selected_indices) >= 3:
+                break
+
+        return selected_indices
