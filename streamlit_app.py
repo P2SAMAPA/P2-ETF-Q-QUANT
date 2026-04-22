@@ -1,6 +1,6 @@
 """
 Streamlit Dashboard for Q-Quant Engine.
-Displays single ETF pick from QAOA and VQE.
+Displays single ETF pick from QAOA and VQE, plus top 3 by expected return.
 """
 
 import streamlit as st
@@ -41,6 +41,7 @@ def load_latest_results():
 
 def display_optimizer_tab(optimizer_data: dict, optimizer_name: str):
     top_picks = optimizer_data.get('top_picks', {})
+    top3_dict = optimizer_data.get('top3', {})
     subtabs = st.tabs(["📊 Combined", "📈 Equity Sectors", "💰 FI/Commodities"])
     universe_keys = ["COMBINED", "EQUITY_SECTORS", "FI_COMMODITIES"]
 
@@ -57,6 +58,15 @@ def display_optimizer_tab(optimizer_data: dict, optimizer_name: str):
                     <div class="hero-return">Expected Return: {exp_ret*100:.2f}%</div>
                 </div>
                 """, unsafe_allow_html=True)
+
+                # Display top 3 table
+                top3 = top3_dict.get(key, [])
+                if top3:
+                    st.markdown("### Top 3 ETFs by Expected Return")
+                    df = pd.DataFrame(top3)
+                    df['Expected Return'] = df['expected_return'].apply(lambda x: f"{x*100:.2f}%")
+                    df = df[['ticker', 'Expected Return']].rename(columns={'ticker': 'Ticker'})
+                    st.dataframe(df, use_container_width=True, hide_index=True)
             else:
                 st.info(f"No selection for {key}.")
 
