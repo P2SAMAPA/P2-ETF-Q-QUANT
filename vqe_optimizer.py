@@ -1,5 +1,5 @@
 """
-Variational Quantum Eigensolver (VQE) for single ETF selection.
+Variational Quantum Eigensolver (VQE) for selecting highest expected return ETF.
 """
 
 import numpy as np
@@ -16,7 +16,7 @@ class VQEOptimizer:
     def build_cost_hamiltonian(self, expected_returns):
         return -expected_returns
 
-    def vqe_circuit(self, params, linear_coeffs, penalty, K):
+    def vqe_circuit(self, params, linear_coeffs):
         """Hardware-efficient ansatz."""
         params = params.reshape(self.n_layers, self.n_qubits, 3)
 
@@ -32,17 +32,16 @@ class VQEOptimizer:
 
         return qml.sample(wires=range(self.n_qubits))
 
-    def compute_expectation(self, params, linear_coeffs, penalty, K):
+    def compute_expectation(self, params, linear_coeffs):
         qnode = qml.QNode(self.vqe_circuit, self.dev)
-        samples = qnode(params, linear_coeffs, penalty, K)
+        samples = qnode(params, linear_coeffs)
         cost = 0.0
         for sample in samples:
             x = sample.astype(float)
-            c = np.dot(linear_coeffs, x) + penalty * (np.sum(x) - K) ** 2
-            cost += c
+            cost += np.dot(linear_coeffs, x)
         return cost / len(samples)
 
-    def optimize_portfolio(self, expected_returns, covariance=None, risk_factor=0.5, penalty=100.0, K=1):
+    def optimize_portfolio(self, expected_returns, K=1):
         n = len(expected_returns)
         self.n_qubits = n
         linear_coeffs = self.build_cost_hamiltonian(expected_returns)
@@ -50,20 +49,24 @@ class VQEOptimizer:
         init_params = np.random.uniform(0, np.pi, self.n_layers * self.n_qubits * 3)
 
         def objective(params):
-            return self.compute_expectation(params, linear_coeffs, penalty, K)
+            return self.compute_expectation(params, linear_coeffs)
 
         result = minimize(objective, init_params, method='COBYLA', options={'maxiter': 100})
         optimal_params = result.x
 
         qnode = qml.QNode(self.vqe_circuit, self.dev)
-        samples = qnode(optimal_params, linear_coeffs, penalty, K)
-        best_sample = None
-        best_cost = float('inf')
-        for sample in samples:
-            x = sample.astype(float)
-            c = np.dot(linear_coeffs, x) + penalty * (np.sum(x) - K) ** 2
-            if c < best_cost:
-                best_cost = c
-                best_sample = x
+        samples = qnode(optimal_params, linear_coeffs)
 
-        return best_sample, best_cost
+        unique, counts = np.unique(samples, axis=0, return_counts=True)
+        sorted_idx = np.argsort(counts)[::-1]
+        top_bitstrings = unique[sorted_idx]
+
+        selected_indices = []
+        for bs in top_bitstrings:
+            idx = np.where(bs == 1)[0]
+            if len(idx) == 1:
+                selected_indices.append(idx[0])
+            if len(selected_indices) >= 3:
+                break
+
+        return selected_indices
