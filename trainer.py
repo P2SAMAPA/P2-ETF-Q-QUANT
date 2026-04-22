@@ -1,7 +1,7 @@
 """
 Main training script for Q-Quant engine.
 Runs daily (252d) and global (2008‑present) training for QAOA and VQE.
-Hero pick = highest expected return; quantum pick shown separately.
+Quantum optimizers directly select highest expected return ETF.
 """
 
 import json
@@ -20,7 +20,7 @@ def process_universe(optimizer_type, universe_name, tickers, returns, mode="dail
     """Process a single universe with either QAOA or VQE."""
     print(f"  [{optimizer_type}][{mode}] Processing {universe_name}...")
     if len(returns) < config.MIN_OBSERVATIONS:
-        return optimizer_type, mode, universe_name, None, None, [], None
+        return optimizer_type, mode, universe_name, [], []
 
     if mode == "daily":
         recent_returns = returns.iloc[-config.LOOKBACK_WINDOW:]
@@ -31,31 +31,25 @@ def process_universe(optimizer_type, universe_name, tickers, returns, mode="dail
     scaler = StandardScaler()
     expected_returns_scaled = scaler.fit_transform(expected_returns.reshape(-1, 1)).flatten()
 
-    # --- Quantum selection (for reference) ---
     n_assets = len(tickers)
     if optimizer_type == "QAOA":
         optimizer = QAOAOptimizer(n_qubits=n_assets, n_layers=config.QAOA_LAYERS, num_shots=config.NUM_SHOTS)
     else:
         optimizer = VQEOptimizer(n_qubits=n_assets, n_layers=config.QAOA_LAYERS, num_shots=config.NUM_SHOTS)
 
-    quantum_bitstring, _ = optimizer.optimize_portfolio(expected_returns_scaled, penalty=100.0, K=1)
-    quantum_index = np.argmax(quantum_bitstring)
-    quantum_ticker = tickers[quantum_index]
-    quantum_return = expected_returns[quantum_index]
+    selected_indices = optimizer.optimize_portfolio(expected_returns_scaled)
 
-    # --- Hero pick: highest expected return (deterministic) ---
-    best_index = np.argmax(expected_returns)
-    hero_ticker = tickers[best_index]
-    hero_return = expected_returns[best_index]
+    # Map indices to tickers and returns
+    picks = []
+    for idx in selected_indices:
+        if idx < len(tickers):
+            picks.append({
+                "ticker": tickers[idx],
+                "expected_return": expected_returns[idx]
+            })
 
-    # Top 3 by expected return
-    top3 = []
-    sorted_indices = np.argsort(expected_returns)[::-1][:3]
-    for idx in sorted_indices:
-        top3.append({"ticker": tickers[idx], "expected_return": expected_returns[idx]})
-
-    print(f"  [{optimizer_type}][{mode}] {universe_name} hero: {hero_ticker} ({hero_return*100:.2f}%), quantum: {quantum_ticker}")
-    return optimizer_type, mode, universe_name, hero_ticker, hero_return, top3, quantum_ticker, quantum_return
+    print(f"  [{optimizer_type}][{mode}] {universe_name} top: {picks[0]['ticker'] if picks else 'None'}")
+    return optimizer_type, mode, universe_name, picks
 
 
 def run_q_quant():
@@ -89,14 +83,11 @@ def run_q_quant():
         }
 
         for future in as_completed(tasks):
-            opt_type, mode, uni, hero_ticker, hero_ret, top3, q_ticker, q_ret = future.result()
-            if hero_ticker:
+            opt_type, mode, uni, picks = future.result()
+            if picks:
                 results[mode][opt_type][uni] = {
-                    "hero_ticker": hero_ticker,
-                    "hero_return": hero_ret,
-                    "quantum_ticker": q_ticker,
-                    "quantum_return": q_ret,
-                    "top3": top3
+                    "top_pick": picks[0],
+                    "top3": picks[:3]
                 }
 
     output_payload = {
