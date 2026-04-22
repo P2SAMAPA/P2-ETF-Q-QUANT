@@ -1,6 +1,7 @@
 """
 Main training script for Q-Quant engine.
 Selects exactly one ETF per universe using QAOA and VQE in parallel.
+Also returns the top 3 ETFs by expected return.
 """
 
 import json
@@ -20,10 +21,10 @@ def process_universe_optimizer(optimizer_type, universe_name, tickers, returns_d
     print(f"  [{optimizer_type}] Processing {universe_name}...")
     returns = returns_data[universe_name]
     if len(returns) < config.MIN_OBSERVATIONS:
-        return optimizer_type, universe_name, None, None
+        return optimizer_type, universe_name, None, None, []
 
     recent_returns = returns.iloc[-config.LOOKBACK_WINDOW:]
-    expected_returns = recent_returns.mean().values * 252
+    expected_returns = recent_returns.mean().values * 252  # Annualized
 
     scaler = StandardScaler()
     expected_returns_scaled = scaler.fit_transform(expected_returns.reshape(-1, 1)).flatten()
@@ -40,8 +41,14 @@ def process_universe_optimizer(optimizer_type, universe_name, tickers, returns_d
     selected_ticker = tickers[selected_index]
     selected_return = expected_returns[selected_index]
 
+    # Get top 3 ETFs by expected return (simplest ranking)
+    top3 = []
+    sorted_indices = np.argsort(expected_returns)[::-1][:3]
+    for idx in sorted_indices:
+        top3.append({"ticker": tickers[idx], "expected_return": expected_returns[idx]})
+
     print(f"  [{optimizer_type}] {universe_name} selected: {selected_ticker} ({selected_return*100:.2f}%)")
-    return optimizer_type, universe_name, selected_ticker, selected_return
+    return optimizer_type, universe_name, selected_ticker, selected_return, top3
 
 
 def run_q_quant():
@@ -65,20 +72,24 @@ def run_q_quant():
                 ))
 
         qaoa_picks = {}
+        qaoa_top3 = {}
         vqe_picks = {}
+        vqe_top3 = {}
         for future in as_completed(tasks):
-            opt_type, uni, ticker, exp_ret = future.result()
+            opt_type, uni, ticker, exp_ret, top3 = future.result()
             if ticker:
                 if opt_type == "QAOA":
                     qaoa_picks[uni] = {"ticker": ticker, "expected_return": exp_ret}
+                    qaoa_top3[uni] = top3
                 else:
                     vqe_picks[uni] = {"ticker": ticker, "expected_return": exp_ret}
+                    vqe_top3[uni] = top3
 
     output_payload = {
         "run_date": config.TODAY,
         "config": {"lookback_window": config.LOOKBACK_WINDOW, "num_assets_to_select": 1},
-        "qaoa": {"top_picks": qaoa_picks},
-        "vqe": {"top_picks": vqe_picks}
+        "qaoa": {"top_picks": qaoa_picks, "top3": qaoa_top3},
+        "vqe": {"top_picks": vqe_picks, "top3": vqe_top3}
     }
 
     push_results.push_daily_result(output_payload)
