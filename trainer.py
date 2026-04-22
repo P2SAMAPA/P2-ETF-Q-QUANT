@@ -7,7 +7,6 @@ import json
 import pandas as pd
 import numpy as np
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from sklearn.preprocessing import StandardScaler
 
 import config
 import data_manager
@@ -24,11 +23,10 @@ def process_universe(optimizer_type, universe_name, tickers, returns, mode="dail
     if mode == "daily":
         recent_returns = returns.iloc[-config.LOOKBACK_WINDOW:]
     else:
-        recent_returns = returns  # global: use all data
+        recent_returns = returns
 
+    # Use raw annualized expected returns (NO SCALING)
     expected_returns = recent_returns.mean().values * 252
-    scaler = StandardScaler()
-    expected_returns_scaled = scaler.fit_transform(expected_returns.reshape(-1, 1)).flatten()
 
     n_assets = len(tickers)
     if optimizer_type == "QAOA":
@@ -36,12 +34,15 @@ def process_universe(optimizer_type, universe_name, tickers, returns, mode="dail
     else:
         optimizer = VQEOptimizer(n_qubits=n_assets, n_layers=config.QAOA_LAYERS, num_shots=config.NUM_SHOTS)
 
-    best_bitstring, _ = optimizer.optimize_portfolio(expected_returns_scaled, penalty=100.0, K=1)
+    # Pass raw expected returns; penalty must be large enough relative to return magnitudes
+    # Typical annualized returns are in [‑0.5, 1.5], so penalty=10.0 is sufficient
+    best_bitstring, _ = optimizer.optimize_portfolio(expected_returns, penalty=10.0, K=1)
 
     selected_index = np.argmax(best_bitstring)
     selected_ticker = tickers[selected_index]
     selected_return = expected_returns[selected_index]
 
+    # Top 3 by expected return
     top3 = []
     sorted_indices = np.argsort(expected_returns)[::-1][:3]
     for idx in sorted_indices:
@@ -56,7 +57,6 @@ def run_q_quant():
     df_master = data_manager.load_master_data()
     df_master = df_master[df_master['Date'] >= config.GLOBAL_TRAINING_START]
 
-    # Pre-compute returns for all universes (full history)
     returns_global = {}
     tickers_map = {}
     for universe_name, tickers in config.UNIVERSES.items():
@@ -67,15 +67,12 @@ def run_q_quant():
 
     tasks = []
     with ProcessPoolExecutor(max_workers=2) as executor:
-        # Submit daily and global tasks for both optimizers
         for opt in ["QAOA", "VQE"]:
             for uni in returns_global.keys():
-                # Daily mode (last 252 days)
                 daily_returns = returns_global[uni].iloc[-config.LOOKBACK_WINDOW:]
                 tasks.append(executor.submit(
                     process_universe, opt, uni, tickers_map[uni], daily_returns, "daily"
                 ))
-                # Global mode (full history)
                 tasks.append(executor.submit(
                     process_universe, opt, uni, tickers_map[uni], returns_global[uni], "global"
                 ))
